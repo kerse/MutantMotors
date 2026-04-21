@@ -1,3 +1,13 @@
+import {
+    cloneGenes,
+    createShuffleOffspring,
+    crossover,
+    generateRandomGenes,
+    mutate,
+    random,
+    selectParentViaTournament
+} from './src/genetics.js';
+
 const { Engine, Render, Runner, World, Bodies, Body, Composite, Constraint, Events, Vector, Bounds } = Matter;
 
 const canvasEl = document.getElementById('simulationCanvas');
@@ -67,10 +77,6 @@ const algorithmDescriptions = {
     standard: "Standard: Two parents are selected from the breeding pool (tournament selection). Their genes are combined to create offspring, which is then mutated.",
     shuffle: "Shuffle: For each gene of the offspring, a random parent is chosen from the breeding pool. Genes are assembled like a 'mosaic', then mutated."
 };
-
-function random(min, max) {
-    return Math.random() * (max - min) + min;
-}
 
 /* =====  НАСТРАИВАЕМЫЕ СПИСКИ  ===== */
 const BASE_NAME_POOL = [
@@ -431,35 +437,7 @@ class Car {
     }
 
     generateRandomGenes() {
-        const numBodyVert = Math.floor(random(3, 8.99));
-        const bodyVertices = [];
-        const angleStep = (2 * Math.PI) / numBodyVert;
-        const baseBodyRadius = random(25, 45);
-        for (let i = 0; i < numBodyVert; i++) {
-            const radius = baseBodyRadius + random(-10, 10);
-            bodyVertices.push({
-                x: radius * Math.cos(i * angleStep + random(-0.2, 0.2)),
-                y: radius * Math.sin(i * angleStep + random(-0.2, 0.2))
-            });
-        }
-        bodyVertices.sort((a, b) => Math.atan2(a.y, a.x) - Math.atan2(b.y, b.x));
-
-        const numWh = Math.floor(random(0, 4.99));
-        const wheelGenes = [];
-        for (let i = 0; i < numWh; i++) {
-            wheelGenes.push({
-                vertexIndex: Math.floor(random(0, numBodyVert)),
-                radius: random(10, 20),
-                ovality: random(0.5, 1.5)
-            });
-        }
-        return {
-            numBodyVertices: numBodyVert,
-            bodyVertices,
-            numWheels: numWh,
-            wheels: wheelGenes,
-            chassisScale: random(0.7, 1.5)
-        };
+        return generateRandomGenes();
     }
 
     generateEllipseVertices(radiusX, radiusY, segments = 16) {
@@ -735,25 +713,6 @@ function endGeneration() {
     }
 }
 
-function selectParentViaTournament(pool) {
-    if (!pool || pool.length === 0) return null;
-    if (pool.length === 1) return pool[0];
-
-    const tournamentSize = Math.max(2, Math.min(5, Math.floor(pool.length / 2)));
-    let bestInTournament = null;
-    let bestFitnessInTournament = -Infinity;
-
-    for (let i = 0; i < tournamentSize; i++) {
-        const randomIndex = Math.floor(Math.random() * pool.length);
-        const candidate = pool[randomIndex];
-        if (candidate && typeof candidate.maxDistance === 'number' && candidate.maxDistance > bestFitnessInTournament) {
-            bestInTournament = candidate;
-            bestFitnessInTournament = candidate.maxDistance;
-        }
-    }
-    return bestInTournament || pool[0];
-}
-
 function evolvePopulation() {
     const popSize = parseInt(populationSizeInput.value, 10);
     const mutationR = parseFloat(mutationRateInput.value);
@@ -808,34 +767,7 @@ function evolvePopulation() {
             }
 
         } else { // === SHUFFLE ==================================
-            if (breedingPool.length) {
-                offspringGenes = { wheels: [] };
-
-                const pick = () => breedingPool[Math.floor(Math.random() * breedingPool.length)].genes;
-
-                const shapeParent = pick();
-                offspringGenes.numBodyVertices = shapeParent.numBodyVertices;
-                offspringGenes.bodyVertices = JSON.parse(JSON.stringify(shapeParent.bodyVertices));
-
-                offspringGenes.chassisScale = pick().chassisScale;
-
-                const wheelParent = pick();
-                offspringGenes.numWheels = wheelParent.numWheels;
-
-                for (let k = 0; k < offspringGenes.numWheels; k++) {
-                    const donor = pick();
-                    const wheelTemplate = donor.wheels?.[Math.floor(Math.random() * donor.wheels.length)];
-                    offspringGenes.wheels.push({
-                        vertexIndex: Math.floor(random(0, offspringGenes.numBodyVertices)),
-                        radius: wheelTemplate?.radius ?? random(10, 20),
-                        ovality: wheelTemplate?.ovality ?? random(0.5, 1.5)
-                    });
-                }
-                if (offspringGenes.numWheels === 0) offspringGenes.wheels = [];
-
-            } else {
-                offspringGenes = new Car(null, 'ErrorCar').generateRandomGenes();
-            }
+            offspringGenes = createShuffleOffspring(breedingPool);
         }
 
         offspringGenes = mutate(offspringGenes, mutationR);
@@ -845,121 +777,6 @@ function evolvePopulation() {
     population = newPopulation;
 }
 
-
-function cloneGenes(genes) {
-    if (!genes) return null;
-    return JSON.parse(JSON.stringify(genes));
-}
-
-function crossover(genes1, genes2) {
-    if (!genes1 || !genes2 || !genes1.bodyVertices || !genes2.bodyVertices || !genes1.wheels || !genes2.wheels) {
-        return cloneGenes(genes1 || genes2) || new Car(null, "ErrorCar").generateRandomGenes();
-    }
-
-    const newGenes = {
-        bodyVertices: [],
-        wheels: [],
-        chassisScale: (Math.random() < 0.5) ? genes1.chassisScale : genes2.chassisScale
-    };
-
-    if (Math.random() < 0.5) {
-        newGenes.numBodyVertices = genes1.numBodyVertices;
-        newGenes.bodyVertices = JSON.parse(JSON.stringify(genes1.bodyVertices));
-    } else {
-        newGenes.numBodyVertices = genes2.numBodyVertices;
-        newGenes.bodyVertices = JSON.parse(JSON.stringify(genes2.bodyVertices));
-    }
-
-    if (Math.random() < 0.5) {
-        newGenes.numWheels = genes1.numWheels;
-        newGenes.wheels = JSON.parse(JSON.stringify(genes1.wheels));
-    } else {
-        newGenes.numWheels = genes2.numWheels;
-        newGenes.wheels = JSON.parse(JSON.stringify(genes2.wheels));
-    }
-
-    newGenes.wheels.forEach(wheel => {
-        if (wheel.vertexIndex >= newGenes.numBodyVertices) {
-            wheel.vertexIndex = Math.max(0, newGenes.numBodyVertices - 1);
-        }
-        if (typeof wheel.ovality === 'undefined') {
-            wheel.ovality = 1.0;
-        }
-    });
-    if (newGenes.numWheels === 0) {
-        newGenes.wheels = [];
-    }
-    return newGenes;
-}
-
-function mutate(genes, rate) {
-    if (!genes || !genes.bodyVertices || !genes.wheels || typeof genes.chassisScale === 'undefined') {
-        return new Car(null, "ErrorCar").generateRandomGenes();
-    }
-
-    if (Math.random() < rate * 0.3) {
-        genes.chassisScale += random(-0.25, 0.25);
-        genes.chassisScale = Math.max(0.5, Math.min(2.0, genes.chassisScale));
-    }
-
-    if (Math.random() < rate * 0.1) {
-        const oldNumVertices = genes.numBodyVertices;
-        genes.numBodyVertices += (Math.random() < 0.5 ? -1 : 1);
-        genes.numBodyVertices = Math.max(3, Math.min(8, genes.numBodyVertices));
-
-        if (genes.numBodyVertices !== oldNumVertices) {
-            const newBodyV = [];
-            const angleStep = (2 * Math.PI) / genes.numBodyVertices;
-            const baseBodyRadius = random(25, 45);
-            for (let k = 0; k < genes.numBodyVertices; k++) {
-                const r = baseBodyRadius + random(-10, 10);
-                newBodyV.push({ x: r * Math.cos(k * angleStep + random(-0.2, 0.2)), y: r * Math.sin(k * angleStep + random(-0.2, 0.2)) });
-            }
-            newBodyV.sort((a, b) => Math.atan2(a.y, a.x) - Math.atan2(b.y, b.x));
-            genes.bodyVertices = newBodyV;
-            genes.wheels.forEach(w => { w.vertexIndex = Math.min(w.vertexIndex, Math.max(0, genes.numBodyVertices - 1)); });
-        }
-    }
-
-    genes.bodyVertices.forEach(v => {
-        if (Math.random() < rate) v.x += random(-5, 5);
-        if (Math.random() < rate) v.y += random(-5, 5);
-    });
-    genes.bodyVertices.sort((a, b) => Math.atan2(a.y, a.x) - Math.atan2(b.y, b.x));
-
-    if (Math.random() < rate * 0.1) {
-        const oldNumWheels = genes.numWheels;
-        genes.numWheels += (Math.random() < 0.5 ? -1 : 1);
-        genes.numWheels = Math.max(0, Math.min(4, genes.numWheels));
-
-        if (genes.numWheels > oldNumWheels) {
-            for (let k = 0; k < genes.numWheels - oldNumWheels; k++) {
-                genes.wheels.push({
-                    vertexIndex: Math.floor(random(0, genes.numBodyVertices)),
-                    radius: random(10, 20),
-                    ovality: random(0.5, 1.5)
-                });
-            }
-        } else if (genes.numWheels < oldNumWheels) {
-            genes.wheels = genes.wheels.slice(0, genes.numWheels);
-        }
-    }
-
-    genes.wheels.forEach(wheel => {
-        if (Math.random() < rate) {
-            wheel.radius = Math.max(3, wheel.radius + random(-3, 3));
-        }
-        if (Math.random() < rate) {
-            wheel.vertexIndex = Math.floor(random(0, Math.max(1, genes.numBodyVertices)));
-        }
-        if (Math.random() < rate) {
-            wheel.ovality += random(-0.2, 0.2);
-            wheel.ovality = Math.max(0.3, Math.min(2.0, wheel.ovality));
-        }
-    });
-
-    return genes;
-}
 
 function clearCarsFromWorld() {
     population.forEach(car => car.removeFromWorld());
